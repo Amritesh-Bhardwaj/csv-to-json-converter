@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const csvContent = event.target.result;
                 
                 // Use either direct API path or Netlify function path depending on environment
-                const apiUrl = '/api/convert-csv';
+                const apiUrl = '/.netlify/functions/convert-csv';
                 
                 // Log request details for debugging
                 console.log("Sending request to:", apiUrl);
