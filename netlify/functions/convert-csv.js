@@ -38,7 +38,7 @@ exports.handler = async function(event, context) {
 
     // Convert to hierarchical structure
     const result = convertToHierarchicalJson(records);
-    
+
     return {
       statusCode: 200,
       body: JSON.stringify(result)
@@ -52,65 +52,133 @@ exports.handler = async function(event, context) {
 };
 
 function convertToHierarchicalJson(records) {
-  // Initialize result structure
   const result = { tableData: [] };
-  
-  // Keep track of current state and region
   let currentState = null;
   let currentRegion = null;
   
-  // Process each row in the records
+  // Create maps to track states and regions by name/ID
+  const stateMap = {};
+  const regionMap = {};
+  
+  // First pass: process all state rows and create state objects
   for (const row of records) {
-    const stateName = row['State'] || null;
-    const regionCode = row['Region'] || null;
-    const branchName = row['Branch Name'] || null;
+    const stateName = row['State'] ? row['State'].trim() : "";
     
-    // Skip Grand Total rows
-    if (stateName === "Grand Total" || branchName === "Grand Total") {
-      continue;
-    }
+    // Skip rows without a state name or rows that are region totals
+    if (!stateName || stateName.includes("Region Total")) continue;
     
-    // Extract all metrics from the row
-    const metrics = extractMetrics(row);
-    
-    // State row: State column has a value and it's not a branch row
-    if (stateName && !(branchName && !branchName.includes("Total"))) {
-      const stateId = stateName.toLowerCase().replace(/\s/g, "");
+    // Create state object if not already created
+    if (!stateMap[stateName]) {
+      const stateId = stateName.toLowerCase().replace(/\s+/g, "");
       const stateObj = {
         id: stateId,
         name: stateName,
-        ...metrics,
+        ...extractMetrics(row),
         regions: []
       };
       result.tableData.push(stateObj);
-      currentState = stateObj;
+      stateMap[stateName] = stateObj;
     }
-    // Region row: Branch Name contains "Region Total"
-    else if (branchName && branchName.includes("Region Total") && currentState) {
-      const regionId = regionCode ? regionCode.toLowerCase() : "";
-      const regionObj = {
-        id: regionId,
-        name: branchName,
-        ...metrics,
-        branches: []
-      };
-      currentState.regions.push(regionObj);
-      currentRegion = regionObj;
+  }
+  
+  // Second pass: process region total rows
+  for (const row of records) {
+    const stateName = row['State'] ? row['State'].trim() : "";
+    const branchName = row['Branch Name'] ? row['Branch Name'].trim() : "";
+    
+    // Check if this is a region total row
+    const isRegionTotal = stateName.includes("Region Total") || 
+                         (branchName && branchName.includes("Region Total"));
+    
+    if (isRegionTotal) {
+      // Extract region ID from name (e.g., "MH1 Region Total" -> "mh1")
+      let regionId, parentStateName;
+      
+      if (stateName.includes("Region Total")) {
+        // If region total is in the state column
+        regionId = stateName.split(" ")[0].toLowerCase();
+        
+        // Find the parent state for this region
+        // Look back at previous rows to find the last state
+        for (let i = records.indexOf(row) - 1; i >= 0; i--) {
+          const prevStateName = records[i]['State'] ? records[i]['State'].trim() : "";
+          if (prevStateName && !prevStateName.includes("Region Total")) {
+            parentStateName = prevStateName;
+            break;
+          }
+        }
+      } else {
+        // If region total is in the branch name column
+        regionId = row['Region'] ? row['Region'].toLowerCase() : "";
+        parentStateName = stateName;
+      }
+      
+      // Find the parent state object
+      const parentState = stateMap[parentStateName];
+      if (parentState) {
+        // Create region object
+        const regionObj = {
+          id: regionId,
+          name: branchName || stateName, // Use appropriate name
+          ...extractMetrics(row),
+          branches: []
+        };
+        
+        // Add region to parent state
+        parentState.regions.push(regionObj);
+        
+        // Store region in map for branch association
+        regionMap[regionId] = { region: regionObj, parentState: parentStateName };
+      }
     }
-    // Branch row: Has Branch Name that isn't a "Region Total" or "Grand Total"
-    else if (branchName && !branchName.includes("Total") && currentRegion) {
-      const branchId = branchName.toLowerCase().replace(/\s/g, "").replace(/-/g, "");
+  }
+  
+  // Third pass: process branch rows
+  for (const row of records) {
+    const stateName = row['State'] ? row['State'].trim() : "";
+    const regionCode = row['Region'] ? row['Region'].trim() : "";
+    const branchName = row['Branch Name'] ? row['Branch Name'].trim() : "";
+    
+    // Skip if this is a state row, region total row, or has no branch name
+    if (!branchName || 
+        branchName.includes("Region Total") || 
+        branchName.includes("Grand Total") ||
+        (stateName && !regionCode)) {
+      continue;
+    }
+    
+    // Find the parent region for this branch
+    let parentRegion = null;
+    const regionId = regionCode.toLowerCase();
+    
+    if (regionMap[regionId]) {
+      parentRegion = regionMap[regionId].region;
+    } else {
+      // If region not found directly, try to find by state name
+      const parentState = stateMap[stateName] || 
+                         (stateName === "" && Object.values(stateMap).find(s => 
+                          s.regions.some(r => r.id === regionId)));
+      
+      if (parentState) {
+        parentRegion = parentState.regions.find(r => r.id === regionId);
+      }
+    }
+    
+    // Add branch to its parent region
+    if (parentRegion) {
       const branchObj = {
-        id: branchId,
+        id: branchName.toLowerCase().replace(/\s+/g, "").replace(/-/g, ""),
         name: branchName,
-        ...metrics
+        ...extractMetrics(row)
       };
-      currentRegion.branches.push(branchObj);
+      
+      parentRegion.branches.push(branchObj);
     }
   }
   
   return result;
 }
+
 
 function extractMetrics(row) {
   return {
