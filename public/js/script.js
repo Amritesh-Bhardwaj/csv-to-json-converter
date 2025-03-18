@@ -101,34 +101,63 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     function startConversion() {
+        console.log("Starting conversion for file:", selectedFile.name);
         loading.classList.remove('hidden');
         result.classList.add('hidden');
         errorDiv.classList.add('hidden');
         
-        const formData = new FormData();
-        formData.append('file', selectedFile);
+        // Read file as text
+        const reader = new FileReader();
         
-        fetch('/api/convert-csv', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(data => {
-                    throw new Error(data.error || 'Error converting file');
+        reader.onload = async function(event) {
+            try {
+                // Get the file content as text
+                const csvContent = event.target.result;
+                
+                // Use either direct API path or Netlify function path depending on environment
+                const apiUrl = '/api/convert-csv';
+                
+                // Log request details for debugging
+                console.log("Sending request to:", apiUrl);
+                console.log("CSV content length:", csvContent.length);
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        csvContent,
+                        fileName: selectedFile.name 
+                    })
                 });
+                
+                console.log("Response status:", response.status);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log("Conversion successful");
+                
+                convertedJson = data;
+                loading.classList.add('hidden');
+                result.classList.remove('hidden');
+            } catch (error) {
+                console.error("Conversion error:", error);
+                loading.classList.add('hidden');
+                showError(error.message || "Error converting file. Please try again.");
             }
-            return response.json();
-        })
-        .then(data => {
-            convertedJson = data;
+        };
+        
+        reader.onerror = function() {
             loading.classList.add('hidden');
-            result.classList.remove('hidden');
-        })
-        .catch(error => {
-            loading.classList.add('hidden');
-            showError(error.message);
-        });
+            showError("Error reading file. Please try again.");
+        };
+        
+        reader.readAsText(selectedFile);
     }
     
     // Download JSON
@@ -160,6 +189,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     function showError(message) {
+        console.error("Error:", message);
         errorDiv.textContent = message;
         errorDiv.classList.remove('hidden');
     }

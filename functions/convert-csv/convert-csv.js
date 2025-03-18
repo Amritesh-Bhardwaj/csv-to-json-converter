@@ -1,49 +1,73 @@
-import { parse } from 'csv-parse/sync';
+// Import csv-parse package
+const { parse } = require('csv-parse/sync');
 
-export async function handler(event, context) {
+exports.handler = async function(event, context) {
+  console.log("Function started");
+  
   try {
     // Only allow POST requests
     if (event.httpMethod !== 'POST') {
+      console.log("Method not allowed:", event.httpMethod);
       return {
         statusCode: 405,
-        body: JSON.stringify({ error: 'Method Not Allowed' })
+        body: JSON.stringify({ success: false, error: 'Method Not Allowed' })
       };
     }
 
-    // Parse the multipart form-data
-    let csvData;
-    
-    // Get the CSV data from the request body
-    if (event.isBase64Encoded) {
-      const base64Data = event.body.split(',')[1];
-      csvData = Buffer.from(base64Data, 'base64').toString('utf8');
-    } else {
+    // Parse request body
+    let requestBody;
+    try {
+      requestBody = JSON.parse(event.body);
+    } catch (error) {
+      console.log("Error parsing request body:", error);
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'CSV data not found or not properly encoded' })
+        body: JSON.stringify({ success: false, error: 'Invalid request body format' })
       };
     }
 
+    // Get CSV content
+    const csvContent = requestBody.csvContent;
+    if (!csvContent) {
+      console.log("Missing CSV content");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ success: false, error: 'No CSV content provided' })
+      };
+    }
+
+    console.log("CSV content received, length:", csvContent.length);
+
     // Parse CSV to JSON
-    const records = parse(csvData, {
+    const records = parse(csvContent, {
       columns: true,
       skip_empty_lines: true
     });
 
+    console.log("CSV parsed successfully, records:", records.length);
+
     // Convert to hierarchical structure
     const result = convertToHierarchicalJson(records);
+    
+    console.log("Hierarchical JSON created successfully");
 
+    // Return success response
     return {
       statusCode: 200,
       body: JSON.stringify(result)
     };
   } catch (error) {
+    console.log("Error in function:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: `Failed to convert CSV: ${error.message}` })
+      body: JSON.stringify({ 
+        success: false, 
+        error: `Failed to convert CSV: ${error.message}`,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      })
     };
   }
-}
+};
 
 function convertToHierarchicalJson(records) {
   // Initialize result structure
@@ -79,6 +103,7 @@ function convertToHierarchicalJson(records) {
       result.tableData.push(stateObj);
       currentState = stateObj;
     }
+    
     // Region row: Branch Name contains "Region Total"
     else if (branchName && branchName.includes("Region Total") && currentState) {
       const regionId = regionCode ? regionCode.toLowerCase() : "";
@@ -91,6 +116,7 @@ function convertToHierarchicalJson(records) {
       currentState.regions.push(regionObj);
       currentRegion = regionObj;
     }
+    
     // Branch row: Has Branch Name that isn't a "Region Total" or "Grand Total"
     else if (branchName && !branchName.includes("Total") && currentRegion) {
       const branchId = branchName.toLowerCase().replace(/\s/g, "").replace(/-/g, "");
@@ -107,25 +133,43 @@ function convertToHierarchicalJson(records) {
 }
 
 function extractMetrics(row) {
+  const safeParseInt = (value) => {
+    try {
+      return value !== undefined && value !== null && value !== '' ? 
+        parseInt(parseFloat(value)) : 0;
+    } catch (e) {
+      return 0;
+    }
+  };
+  
+  const safeParseFloat = (value) => {
+    try {
+      return value !== undefined && value !== null && value !== '' ? 
+        parseFloat(value) : 0;
+    } catch (e) {
+      return 0;
+    }
+  };
+
   return {
-    openingStock: parseInt(parseFloat(row['Opening Stock'] || 0)),
-    applicationLogin: parseInt(parseFloat(row['Application Login'] || 0)),
-    sanctionCount: parseInt(parseFloat(row['Sanction Count'] || 0)),
-    sanctionAmt: parseFloat(row['Sanction Amt (in Cr)'] || 0),
-    pniSanctionCount: parseInt(parseFloat(row['PNI Sanction Count'] || 0)),
-    pniSanctionAmount: parseFloat(row['PNI Sanction Amount (in Cr)'] || 0),
-    freshDisbCount: parseInt(parseFloat(row['Fresh Disb Count'] || 0)),
-    freshDisbAmt: parseFloat(row['Fresh Disb Amt (in Cr.)'] || 0),
-    totalDisbAmt: parseFloat(row['Total Disb Amt (in Cr)'] || 0),
-    diAmt: parseFloat(row['DI Amt (in Cr)'] || 0),
-    rejection: parseInt(parseFloat(row['Rejection'] || 0)),
-    cancellation: parseInt(parseFloat(row['Cancellation'] || 0)),
-    ftr: parseFloat(row['FTR%'] || 0),
-    wip: parseInt(parseFloat(row['WIP'] || 0)),
-    pendingForAllocationByCPA: parseInt(parseFloat(row['Pending for allocation by CPA'] || 0)),
-    wipCPA: parseInt(parseFloat(row['WIP-CPA'] || 0)),
-    salesTrayLoginAcceptance: parseInt(parseFloat(row['Sales Tray (Login Acceptance)'] || 0)),
-    creditPendingDDERecoStage: parseInt(parseFloat(row['Credit Pending (DDE & Reco Stage)'] || 0)),
-    salesTrayDDERECO: parseInt(parseFloat(row['Sales Tray (DDE & RECO)'] || 0))
+    openingStock: safeParseInt(row['Opening Stock']),
+    applicationLogin: safeParseInt(row['Application Login']),
+    sanctionCount: safeParseInt(row['Sanction Count']),
+    sanctionAmt: safeParseFloat(row['Sanction Amt (in Cr)']),
+    pniSanctionCount: safeParseInt(row['PNI Sanction Count']),
+    pniSanctionAmount: safeParseFloat(row['PNI Sanction Amount (in Cr)']),
+    freshDisbCount: safeParseInt(row['Fresh Disb Count']),
+    freshDisbAmt: safeParseFloat(row['Fresh Disb Amt (in Cr.)']),
+    totalDisbAmt: safeParseFloat(row['Total Disb Amt (in Cr)']),
+    diAmt: safeParseFloat(row['DI Amt (in Cr)']),
+    rejection: safeParseInt(row['Rejection']),
+    cancellation: safeParseInt(row['Cancellation']),
+    ftr: safeParseFloat(row['FTR%']),
+    wip: safeParseInt(row['WIP']),
+    pendingForAllocationByCPA: safeParseInt(row['Pending for allocation by CPA']),
+    wipCPA: safeParseInt(row['WIP-CPA']),
+    salesTrayLoginAcceptance: safeParseInt(row['Sales Tray (Login Acceptance)']),
+    creditPendingDDERecoStage: safeParseInt(row['Credit Pending (DDE & Reco Stage)']),
+    salesTrayDDERECO: safeParseInt(row['Sales Tray (DDE & RECO)'])
   };
 }
