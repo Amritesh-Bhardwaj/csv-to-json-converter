@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV to Hierarchical JSON Converter</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <h1>CSV to Hierarchical JSON Converter</h1>
+    <div class="container">
+        <div class="upload-section">
+            <div class="drop-area" id="dropArea">
+                <p>Drag & drop your CSV file here</p>
+                <p>or</p>
+                <label for="fileInput" class="file-input-label">Choose File</label>
+                <input type="file" id="fileInput" accept=".csv" hidden>
+            </div>
+            <div id="fileDetails" class="file-details hidden">
+                <p>Selected file: <span id="fileName"></span></p>
+                <button id="convertBtn" class="btn primary-btn">Convert to JSON</button>
+                <button id="clearBtn" class="btn secondary-btn">Clear</button>
+            </div>
+        </div>
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <p>Converting your file...</p>
+        </div>
+        <div id="result" class="result-section hidden">
+            <h2>Conversion Complete!</h2>
+            <button id="downloadBtn" class="btn primary-btn">Download JSON</button>
+            <button id="viewBtn" class="btn secondary-btn">View JSON</button>
+        </div>
+        <div id="error" class="error-message hidden"></div>
+        <div id="jsonViewer" class="json-viewer hidden">
+            <div class="json-header">
+                <h3>JSON Preview</h3>
+                <button id="closeViewerBtn" class="btn small-btn">Close</button>
+            </div>
+            <pre id="jsonContent"></pre>
+        </div>
+    </div>
+    <script src="js/script.js"></script>
+</body>
+</html>
